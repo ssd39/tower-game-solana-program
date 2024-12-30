@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
-use solana_program::pubkey;
-use solana_program::system_instruction;
+use anchor_lang::solana_program::system_instruction;
+use pyth_solana_receiver_sdk::price_update::{PriceUpdateV2, get_feed_id_from_hex};
 
-declare_id!("GdwhYEQqsQUBvMMFtpZSKmBaWHtfKoNh24Pf91Qoo5a6");
+declare_id!("ETSyyt4YEy9d3dLNuY2Qb6wCxnv3pRPjJSG8CHtsWLJX");
 
 #[program]
 pub mod tower_game {
@@ -27,7 +27,7 @@ pub mod tower_game {
         tournament_id: u64,
     ) -> Result<()> {
         let clock = Clock::get()?;
-        let time_stamp = clock.unix_timestamp;
+        let time_stamp: i64 = clock.unix_timestamp;
         let mut tournament_start_at = ctx.accounts.game_state.tournament_start_at;
         let mut cur_tournament_id = ctx.accounts.game_state.tournament_id;
         if time_stamp - tournament_start_at >= 24 * 3600 {
@@ -55,21 +55,26 @@ pub mod tower_game {
             return err!(ErrorCode::TournamentFinished);
         }
 
-        let base_fee: u64 = 1;
-        let amount = base_fee.checked_mul(10u64.pow(6)).unwrap();
+        let maximum_age: u64 = 3600 * 12;
+        let price_update = &mut ctx.accounts.price_update;
+        let feed_id: [u8; 32] = get_feed_id_from_hex("0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace")?;
+        let price = price_update.get_price_no_older_than(&Clock::get()?, maximum_age, &feed_id)?;
+        let amount: i64 = i64::try_from(price.exponent  * 10i32.pow(7)).unwrap() * price.price;
+        let amount_u64 = u64::try_from(amount).unwrap();
+        
         let transfer_instruction =
-            system_instruction::transfer(&ctx.accounts.user.key, &ctx.accounts.server.key, amount);
+            system_instruction::transfer(&ctx.accounts.user.key, &ctx.accounts.game_state.key(), amount_u64);
 
         // Invoke the transfer instruction
-        anchor_lang::solana_program::program::invoke_signed(
+        anchor_lang::solana_program::program::invoke(
             &transfer_instruction,
             &[
                 ctx.accounts.user.to_account_info(),
-                ctx.accounts.server.to_account_info(),
+                ctx.accounts.game_state.to_account_info(),
                 ctx.accounts.system_program.to_account_info(),
             ],
-            &[],
         )?;
+        tournament_account.prize_pool += amount_u64;
 
         let user_tournament_account = &mut ctx.accounts.user_tournament_account;
         if reward_amount == 0 {
@@ -101,26 +106,31 @@ pub mod tower_game {
         }
         base_fee = base_fee * fee_multiplyer;*/
         let tournament_account = &mut ctx.accounts.tournament_account;
-        let base_fee: u64 = 5;
-        let amount = base_fee.checked_mul(10u64.pow(8)).unwrap();
+
+        let maximum_age: u64 = 3600 * 12;
+        let price_update = &mut ctx.accounts.price_update;
+        let feed_id: [u8; 32] = get_feed_id_from_hex("0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace")?;
+        let price = price_update.get_price_no_older_than(&Clock::get()?, maximum_age, &feed_id)?;
+        let amount: i64 = i64::try_from(price.exponent  * 10i32.pow(8)).unwrap() * price.price * 5;
+        let amount_u64 = u64::try_from(amount).unwrap();
+
         // Create the transfer instruction
         let transfer_instruction = system_instruction::transfer(
             &ctx.accounts.user.key,
-            &ctx.accounts.server_wallet.key,
-            amount,
+            &ctx.accounts.game_state.key(),
+            amount_u64,
         );
 
         // Invoke the transfer instruction
-        anchor_lang::solana_program::program::invoke_signed(
+        anchor_lang::solana_program::program::invoke(
             &transfer_instruction,
             &[
                 ctx.accounts.user.to_account_info(),
-                ctx.accounts.server_wallet.clone(),
+                ctx.accounts.game_state.to_account_info(),
                 ctx.accounts.system_program.to_account_info(),
             ],
-            &[],
         )?;
-        tournament_account.prize_pool += amount;
+        tournament_account.prize_pool += amount_u64;
         user_tournament_account.health += 1;
         Ok(())
     }
@@ -141,13 +151,13 @@ pub mod tower_game {
             .unwrap();
         // Create the transfer instruction
         let transfer_instruction =
-            system_instruction::transfer(&ctx.accounts.server.key, &ctx.accounts.user.key, amount);
+            system_instruction::transfer(&ctx.accounts.game_state.key(), &ctx.accounts.user.key, amount);
 
         // Invoke the transfer instruction
         anchor_lang::solana_program::program::invoke_signed(
             &transfer_instruction,
             &[
-                ctx.accounts.server.to_account_info(),
+                ctx.accounts.game_state.to_account_info(),
                 ctx.accounts.user.to_account_info(),
                 ctx.accounts.system_program.to_account_info(),
             ],
@@ -174,12 +184,14 @@ pub struct Initialize<'info> {
 pub struct ParticipateTournament<'info> {
     #[account(mut, seeds = [], bump)]
     pub game_state: Account<'info, GameState>,
-    #[account(init_if_needed, payer = user, space = 8 + 32 + 8 + 8 + 1, seeds = [b"tourname", &tournament_id.to_le_bytes()], bump)]
+    #[account(init_if_needed, payer = server, space = 8 + 32 + 8 + 8 + 1, seeds = [b"tourname", &tournament_id.to_le_bytes()], bump)]
     pub tournament_account: Account<'info, TournamentState>,
-    #[account(init, payer = user, space = 8 + 8 + 8 + 8 + 8, seeds = [b"user_account", user.key().as_ref(), &tournament_id.to_le_bytes()], bump)]
+    #[account(init, payer = server, space = 8 + 8 + 8 + 8 + 8, seeds = [b"user_account", user.key().as_ref(), &tournament_id.to_le_bytes()], bump)]
     pub user_tournament_account: Account<'info, UserTournamentState>,
     #[account(mut)]
-    pub user: Signer<'info>,
+    pub user: AccountInfo<'info>,
+    #[account(mut, address=game_state.server_address)]
+    pub server: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -192,8 +204,6 @@ pub struct ClaimReward<'info> {
     pub tournament_account: Account<'info, TournamentState>,
     #[account(mut)]
     pub user: Signer<'info>,
-    #[account(mut, address=game_state.server_address)]
-    pub server: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -205,10 +215,9 @@ pub struct Tap<'info> {
     pub user_tournament_account: Account<'info, UserTournamentState>,
     #[account(mut, seeds = [b"tourname", &game_state.tournament_id.to_le_bytes()], bump)]
     pub tournament_account: Account<'info, TournamentState>,
+    pub price_update: Account<'info, PriceUpdateV2>,
     #[account(mut)]
     pub user: Signer<'info>,
-    #[account(mut, address=game_state.server_address)]
-    pub server: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -220,8 +229,7 @@ pub struct BuyChance<'info> {
     pub user_tournament_account: Account<'info, UserTournamentState>,
     #[account(mut, seeds = [b"tourname", &game_state.tournament_id.to_le_bytes()], bump)]
     pub tournament_account: Account<'info, TournamentState>,
-    #[account(mut, address=game_state.server_address)]
-    pub server_wallet: AccountInfo<'info>,
+    pub price_update: Account<'info, PriceUpdateV2>,
     #[account(mut)]
     pub user: Signer<'info>,
     pub system_program: Program<'info, System>,
