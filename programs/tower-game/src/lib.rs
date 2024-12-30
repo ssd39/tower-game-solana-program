@@ -39,6 +39,7 @@ pub mod tower_game {
         }
         ctx.accounts.game_state.tournament_id = cur_tournament_id;
         ctx.accounts.game_state.tournament_start_at = tournament_start_at;
+        ctx.accounts.tournament_account.tournament_start_at = tournament_start_at;
         let user_tournament_account = &mut ctx.accounts.user_tournament_account;
         user_tournament_account.health = 3;
         user_tournament_account.sessions = 1;
@@ -134,6 +135,11 @@ pub mod tower_game {
 
     pub fn claim_reward(ctx: Context<ClaimReward>, _tournament_id: u64) -> Result<()> {
         let tournament_account = &mut ctx.accounts.tournament_account;
+        let clock = Clock::get()?;
+        let time_stamp = clock.unix_timestamp;
+        if time_stamp - tournament_account.tournament_start_at < 24 * 3600 {
+            return err!(ErrorCode::TournamentNotFinished);
+        }
         if tournament_account.is_rewarded {
             return err!(ErrorCode::RewardClaimed);
         }
@@ -182,7 +188,7 @@ pub struct Initialize<'info> {
 pub struct ParticipateTournament<'info> {
     #[account(mut, seeds = [], bump)]
     pub game_state: Account<'info, GameState>,
-    #[account(init_if_needed, payer = server, space = 8 + 32 + 8 + 8 + 1, seeds = [b"tourname", &tournament_id.to_le_bytes()], bump)]
+    #[account(init_if_needed, payer = server, space = 8 + 32 + 8 + 8 + 8 + 1, seeds = [b"tourname", &tournament_id.to_le_bytes()], bump)]
     pub tournament_account: Account<'info, TournamentState>,
     #[account(init, payer = server, space = 8 + 8 + 8 + 8 + 8, seeds = [b"user_account", user.key().as_ref(), &tournament_id.to_le_bytes()], bump)]
     pub user_tournament_account: Account<'info, UserTournamentState>,
@@ -254,6 +260,7 @@ pub struct GameState {
 #[account]
 pub struct TournamentState {
     pub top_player: Pubkey,
+    pub tournament_start_at: i64,
     pub top_score: u64,
     pub is_rewarded: bool,
     pub prize_pool: u64,
@@ -273,4 +280,6 @@ pub enum ErrorCode {
     RewardClaimed,
     #[msg("You are not a winner!")]
     NotWinner,
+    #[msg("Tournament not finished yet!")]
+    TournamentNotFinished
 }

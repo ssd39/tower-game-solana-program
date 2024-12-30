@@ -160,6 +160,11 @@ export type TowerGame = {
           "isSigner": false
         },
         {
+          "name": "topPlayer",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
           "name": "user",
           "isMut": true,
           "isSigner": true
@@ -237,6 +242,10 @@ export type TowerGame = {
             "type": "publicKey"
           },
           {
+            "name": "tournamentStartAt",
+            "type": "i64"
+          },
+          {
             "name": "topScore",
             "type": "u64"
           },
@@ -282,6 +291,11 @@ export type TowerGame = {
       "code": 6005,
       "name": "NotWinner",
       "msg": "You are not a winner!"
+    },
+    {
+      "code": 6006,
+      "name": "TournamentNotFinished",
+      "msg": "Tournament not finished yet!"
     }
   ]
 };
@@ -448,6 +462,11 @@ export const IDL: TowerGame = {
           "isSigner": false
         },
         {
+          "name": "topPlayer",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
           "name": "user",
           "isMut": true,
           "isSigner": true
@@ -525,6 +544,10 @@ export const IDL: TowerGame = {
             "type": "publicKey"
           },
           {
+            "name": "tournamentStartAt",
+            "type": "i64"
+          },
+          {
             "name": "topScore",
             "type": "u64"
           },
@@ -570,6 +593,11 @@ export const IDL: TowerGame = {
       "code": 6005,
       "name": "NotWinner",
       "msg": "You are not a winner!"
+    },
+    {
+      "code": 6006,
+      "name": "TournamentNotFinished",
+      "msg": "Tournament not finished yet!"
     }
   ]
 };
