@@ -77,14 +77,17 @@ pub mod tower_game {
         tournament_account.prize_pool += amount_u64;
 
         let user_tournament_account = &mut ctx.accounts.user_tournament_account;
-        if reward_amount == 0 {
-            user_tournament_account.health -= 1;
-            user_tournament_account.sessions += 1;
-        }
+        
         user_tournament_account.rewards_earned += reward_amount;
         if tournament_account.top_score > user_tournament_account.rewards_earned {
             tournament_account.top_score = user_tournament_account.rewards_earned;
             tournament_account.top_player = ctx.accounts.user.key();
+        }
+
+        if reward_amount == 0 {
+            user_tournament_account.health -= 1;
+            user_tournament_account.sessions += 1;
+            user_tournament_account.rewards_earned = 0;
         }
 
         user_tournament_account.taps += 1;
@@ -99,12 +102,6 @@ pub mod tower_game {
             return err!(ErrorCode::TournamentFinished);
         }
         let user_tournament_account = &mut ctx.accounts.user_tournament_account;
-        //let mut fee_multiplyer = 1;
-        //let mut base_fee: i32 = 1;
-        /*if user_tournament_account.sessions > 3 {
-            fee_multiplyer = (user_tournament_account.sessions - 3) * 2;
-        }
-        base_fee = base_fee * fee_multiplyer;*/
         let tournament_account = &mut ctx.accounts.tournament_account;
 
         let maximum_age: u64 = 3600 * 12;
@@ -140,9 +137,10 @@ pub mod tower_game {
         if tournament_account.is_rewarded {
             return err!(ErrorCode::RewardClaimed);
         }
-        if tournament_account.top_player != *ctx.accounts.user.key {
+        if tournament_account.top_player != *ctx.accounts.top_player.key {
             return err!(ErrorCode::NotWinner);
         }
+
         let amount = tournament_account
             .prize_pool
             .checked_div(100)
@@ -151,14 +149,14 @@ pub mod tower_game {
             .unwrap();
         // Create the transfer instruction
         let transfer_instruction =
-            system_instruction::transfer(&ctx.accounts.game_state.key(), &ctx.accounts.user.key, amount);
+            system_instruction::transfer(&ctx.accounts.game_state.key(), &ctx.accounts.top_player.key, amount);
 
         // Invoke the transfer instruction
         anchor_lang::solana_program::program::invoke_signed(
             &transfer_instruction,
             &[
                 ctx.accounts.game_state.to_account_info(),
-                ctx.accounts.user.to_account_info(),
+                ctx.accounts.top_player.to_account_info(),
                 ctx.accounts.system_program.to_account_info(),
             ],
             &[],
@@ -202,6 +200,8 @@ pub struct ClaimReward<'info> {
     pub game_state: Account<'info, GameState>,
     #[account(mut, seeds = [b"tourname", &_tournament_id.to_le_bytes()], bump)]
     pub tournament_account: Account<'info, TournamentState>,
+    #[account(mut)]
+    pub top_player: AccountInfo<'info>,
     #[account(mut)]
     pub user: Signer<'info>,
     pub system_program: Program<'info, System>,
